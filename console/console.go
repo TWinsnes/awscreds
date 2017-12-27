@@ -79,8 +79,6 @@ func OpenConsole(name string, profile string) error {
 
 	err = json.Unmarshal(data, &t)
 
-	log.Print(t.Token)
-
 	loginURL, err := url.Parse("https://signin.aws.amazon.com/federation")
 
 	if err != nil {
@@ -92,10 +90,6 @@ func OpenConsole(name string, profile string) error {
 	parameters.Add("Destination", "https://console.aws.amazon.com/console/home")
 	parameters.Add("SigninToken", t.Token)
 	loginURL.RawQuery = parameters.Encode()
-
-	// /federation?Action=login&Destination=https://console.aws.amazon.com/console/home&SigninToken=" + t.Token
-
-	log.Print(loginURL.String())
 
 	err = exec.Command("open", loginURL.String()).Start()
 
