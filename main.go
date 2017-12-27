@@ -1,13 +1,20 @@
 package main
 
 import (
+	"encoding/json"
 	"io/ioutil"
 	"log"
 	"net/http"
+	"net/url"
+	"os/exec"
 
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/sts"
 )
+
+type signinToken struct {
+	Token string `json:"SigninToken"`
+}
 
 func main() {
 	sess := session.Must(session.NewSessionWithOptions(session.Options{
@@ -43,9 +50,18 @@ func main() {
 		"\"sessionToken\":\"" + *token.Credentials.SessionToken + "\"" +
 		"}"
 
-	url := "https://signin.aws.amazon.com/federation?Action=getSigninToken&Session=" + sessionString
+	federationURL, err := url.Parse("https://signin.aws.amazon.com/federation")
 
-	resp, err := http.Get(url)
+	if err != nil {
+		panic(err)
+	}
+
+	federationParams := url.Values{}
+	federationParams.Add("Action", "getSigninToken")
+	federationParams.Add("Session", sessionString)
+	federationURL.RawQuery = federationParams.Encode()
+
+	resp, err := http.Get(federationURL.String())
 
 	if err != nil {
 		log.Fatal(err)
@@ -58,7 +74,31 @@ func main() {
 		log.Fatal(err)
 	}
 
-	stringData := string(data[:])
+	var t signinToken
 
-	log.Print(stringData)
+	err = json.Unmarshal(data, &t)
+
+	log.Print(t.Token)
+
+	loginURL, err := url.Parse("https://signin.aws.amazon.com/federation")
+
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	parameters := url.Values{}
+	parameters.Add("Action", "login")
+	parameters.Add("Destination", "https://console.aws.amazon.com/console/home")
+	parameters.Add("SigninToken", t.Token)
+	loginURL.RawQuery = parameters.Encode()
+
+	// /federation?Action=login&Destination=https://console.aws.amazon.com/console/home&SigninToken=" + t.Token
+
+	log.Print(loginURL.String())
+
+	err = exec.Command("open", loginURL.String()).Start()
+
+	if err != nil {
+		panic(err)
+	}
 }
