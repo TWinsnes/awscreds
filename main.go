@@ -13,6 +13,7 @@ func main() {
 
 	consoleProfileFlag := consoleCommand.String("profile", "Default", "AWS profile to log into console with")
 	consoleNameFlag := consoleCommand.String("tokenname", "temptoken", "Name of federated token")
+	consoleServiceFlag := consoleCommand.String("service", "", "Service to redirect to")
 
 	if len(os.Args) < 2 {
 		flag.PrintDefaults()
@@ -27,7 +28,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	err := console.OpenConsole(*consoleNameFlag, *consoleProfileFlag)
+	err := console.OpenConsole(*consoleNameFlag, *consoleProfileFlag, *consoleServiceFlag)
 
 	if err != nil {
 		panic(err)

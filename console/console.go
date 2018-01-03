@@ -17,7 +17,11 @@ type signinToken struct {
 }
 
 // OpenConsole Opens console window logged into defined profile
-func OpenConsole(name string, profile string) error {
+func OpenConsole(name string, profile string, service string) error {
+
+	if service == "" {
+		service = "console"
+	}
 
 	sess := session.Must(session.NewSessionWithOptions(session.Options{
 		Profile: profile,
@@ -87,7 +91,7 @@ func OpenConsole(name string, profile string) error {
 
 	parameters := url.Values{}
 	parameters.Add("Action", "login")
-	parameters.Add("Destination", "https://console.aws.amazon.com/console/home")
+	parameters.Add("Destination", "https://console.aws.amazon.com/"+service+"/home")
 	parameters.Add("SigninToken", t.Token)
 	loginURL.RawQuery = parameters.Encode()
 
