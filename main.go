@@ -4,10 +4,14 @@ import (
 	"flag"
 	"os"
 
-	"github.com/TWinsnes/awscreds/console"
+	"github.com/spf13/cobra/cobra/cmd"
+
+	"github.com/TWinsnes/awscreds/cmd"
 )
 
 func main() {
+
+	cmd.Execute()
 
 	consoleCommand := flag.NewFlagSet("console", flag.ExitOnError)
 
@@ -15,7 +19,8 @@ func main() {
 	consoleNameFlag := consoleCommand.String("tokenname", "temptoken", "Name of federated token")
 	consoleServiceFlag := consoleCommand.String("service", "", "Service to redirect to")
 
-	if len(os.Args) < 2 {
+	flag.PrintDefaults()
+	if len(os.Args) < 3 {
 		flag.PrintDefaults()
 		os.Exit(1)
 	}
