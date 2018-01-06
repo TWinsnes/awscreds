@@ -1,36 +1,21 @@
+// Copyright © 2018 Thomas Winsnes <twinsnes@live.com>
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 package main
 
-import (
-	"flag"
-	"os"
-
-	"github.com/TWinsnes/awscreds/console"
-)
+import "github.com/TWinsnes/awscreds/cmd"
 
 func main() {
-
-	consoleCommand := flag.NewFlagSet("console", flag.ExitOnError)
-
-	consoleProfileFlag := consoleCommand.String("profile", "Default", "AWS profile to log into console with")
-	consoleNameFlag := consoleCommand.String("tokenname", "temptoken", "Name of federated token")
-	consoleServiceFlag := consoleCommand.String("service", "", "Service to redirect to")
-
-	if len(os.Args) < 2 {
-		flag.PrintDefaults()
-		os.Exit(1)
-	}
-
-	switch os.Args[1] {
-	case "console":
-		consoleCommand.Parse(os.Args[2:])
-	default:
-		flag.PrintDefaults()
-		os.Exit(1)
-	}
-
-	err := console.OpenConsole(*consoleNameFlag, *consoleProfileFlag, *consoleServiceFlag)
-
-	if err != nil {
-		panic(err)
-	}
+	cmd.Execute()
 }
