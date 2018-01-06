@@ -16,6 +16,7 @@ package cmd
 
 import (
 	"encoding/json"
+	"fmt"
 	"io/ioutil"
 	"log"
 	"net/http"
@@ -43,6 +44,7 @@ var consoleCmd = &cobra.Command{
 
 var profile string
 var service string
+var printKeys bool
 
 func init() {
 
@@ -50,6 +52,7 @@ func init() {
 
 	consoleCmd.Flags().StringVarP(&profile, "profile", "p", "Default", "AWS CLI profile name")
 	consoleCmd.Flags().StringVarP(&service, "service", "s", "", "AWS Service to connect to")
+	consoleCmd.Flags().BoolVar(&printKeys, "printkeys", false, "Set this to print federated keys to console")
 
 }
 
@@ -90,6 +93,12 @@ func openConsole(name string, profile string, service string) error {
 		"\"sessionKey\":\"" + *token.Credentials.SecretAccessKey + "\"," +
 		"\"sessionToken\":\"" + *token.Credentials.SessionToken + "\"" +
 		"}"
+
+	if printKeys {
+		fmt.Printf("Session ID: %s \n", *token.Credentials.AccessKeyId)
+		fmt.Printf("Session Key: %s \n", *token.Credentials.SecretAccessKey)
+		fmt.Printf("Session Token: %s \n", *token.Credentials.SessionToken)
+	}
 
 	federationURL, err := url.Parse("https://signin.aws.amazon.com/federation")
 
