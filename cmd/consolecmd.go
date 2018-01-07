@@ -15,22 +15,9 @@
 package cmd
 
 import (
-	"encoding/json"
-	"fmt"
-	"io/ioutil"
-	"log"
-	"net/http"
-	"net/url"
-	"os/exec"
-
-	"github.com/aws/aws-sdk-go/aws/session"
-	"github.com/aws/aws-sdk-go/service/sts"
+	"github.com/TWinsnes/awscreds/cmd/console"
 	"github.com/spf13/cobra"
 )
-
-type signinToken struct {
-	Token string `json:"SigninToken"`
-}
 
 // consoleCmd represents the console command
 var consoleCmd = &cobra.Command{
@@ -38,113 +25,19 @@ var consoleCmd = &cobra.Command{
 	Short: "Logs into and opens console in default browser using aws cli profile",
 	Long:  ``,
 	Run: func(cmd *cobra.Command, args []string) {
-		openConsole("awscreds", profile, service)
+		browser := console.DefaultBrowser{}
+		consoleOptions.OpenConsole("awscreds", browser)
 	},
 }
 
-var profile string
-var service string
-var printKeys bool
+var consoleOptions = &console.Console{}
 
 func init() {
 
 	rootCmd.AddCommand(consoleCmd)
 
-	consoleCmd.Flags().StringVarP(&profile, "profile", "p", "Default", "AWS CLI profile name")
-	consoleCmd.Flags().StringVarP(&service, "service", "s", "", "AWS Service to connect to")
-	consoleCmd.Flags().BoolVar(&printKeys, "printkeys", false, "Set this to print federated keys to console")
+	consoleCmd.Flags().StringVarP(&consoleOptions.Profile, "profile", "p", "Default", "AWS CLI profile name")
+	consoleCmd.Flags().StringVarP(&consoleOptions.Service, "service", "s", "", "AWS Service to connect to")
+	consoleCmd.Flags().BoolVar(&consoleOptions.PrintKeys, "printkeys", false, "Set this to print federated keys to console")
 
-}
-
-func openConsole(name string, profile string, service string) error {
-
-	if service == "" {
-		service = "console"
-	}
-
-	sess := session.Must(session.NewSessionWithOptions(session.Options{
-		Profile: profile,
-	}))
-
-	stsClient := sts.New(sess)
-
-	var duration int64 = 43200 // 12 hours
-	policy := `{
-		"Version": "2012-10-17",
-		"Statement": [
-			{
-				"Effect": "Allow",
-				"Action": "*",
-				"Resource": "*"
-			}
-		]
-	}`
-
-	input := sts.GetFederationTokenInput{Name: &name, DurationSeconds: &duration, Policy: &policy}
-
-	token, err := stsClient.GetFederationToken(&input)
-
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	sessionString := "{" +
-		"\"sessionId\":\"" + *token.Credentials.AccessKeyId + "\"," +
-		"\"sessionKey\":\"" + *token.Credentials.SecretAccessKey + "\"," +
-		"\"sessionToken\":\"" + *token.Credentials.SessionToken + "\"" +
-		"}"
-
-	if printKeys {
-		fmt.Printf("Session ID: %s \n", *token.Credentials.AccessKeyId)
-		fmt.Printf("Session Key: %s \n", *token.Credentials.SecretAccessKey)
-		fmt.Printf("Session Token: %s \n", *token.Credentials.SessionToken)
-	}
-
-	federationURL, err := url.Parse("https://signin.aws.amazon.com/federation")
-
-	if err != nil {
-		panic(err)
-	}
-
-	federationParams := url.Values{}
-	federationParams.Add("Action", "getSigninToken")
-	federationParams.Add("Session", sessionString)
-	federationURL.RawQuery = federationParams.Encode()
-
-	resp, err := http.Get(federationURL.String())
-
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	data, err := ioutil.ReadAll(resp.Body)
-
-	resp.Body.Close()
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	var t signinToken
-
-	err = json.Unmarshal(data, &t)
-
-	loginURL, err := url.Parse("https://signin.aws.amazon.com/federation")
-
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	parameters := url.Values{}
-	parameters.Add("Action", "login")
-	parameters.Add("Destination", "https://console.aws.amazon.com/"+service+"/home")
-	parameters.Add("SigninToken", t.Token)
-	loginURL.RawQuery = parameters.Encode()
-
-	err = exec.Command("open", loginURL.String()).Start()
-
-	if err != nil {
-		panic(err)
-	}
-
-	return nil
 }
