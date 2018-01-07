@@ -15,6 +15,8 @@
 package cmd
 
 import (
+	"log"
+
 	"github.com/TWinsnes/awscreds/cmd/console"
 	"github.com/spf13/cobra"
 )
@@ -26,7 +28,11 @@ var consoleCmd = &cobra.Command{
 	Long:  ``,
 	Run: func(cmd *cobra.Command, args []string) {
 		browser := console.DefaultBrowser{}
-		consoleOptions.OpenConsole("awscreds", browser)
+		err := consoleOptions.OpenConsole("awscreds", browser)
+
+		if err != nil {
+			log.Fatal(err)
+		}
 	},
 }
 

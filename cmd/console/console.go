@@ -1,11 +1,10 @@
-//
+// Package console ...
 package console
 
 import (
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
-	"log"
 	"net/http"
 	"net/url"
 	"os/exec"
@@ -64,7 +63,7 @@ func (c *Console) OpenConsole(name string, browser Browser) error {
 	token, err := stsClient.GetFederationToken(&input)
 
 	if err != nil {
-		log.Fatal(err)
+		return err
 	}
 
 	sessionString := "{" +
@@ -82,7 +81,7 @@ func (c *Console) OpenConsole(name string, browser Browser) error {
 	federationURL, err := url.Parse("https://signin.aws.amazon.com/federation")
 
 	if err != nil {
-		panic(err)
+		return err
 	}
 
 	federationParams := url.Values{}
@@ -93,14 +92,14 @@ func (c *Console) OpenConsole(name string, browser Browser) error {
 	resp, err := http.Get(federationURL.String())
 
 	if err != nil {
-		log.Fatal(err)
+		return err
 	}
 
 	data, err := ioutil.ReadAll(resp.Body)
 
 	resp.Body.Close()
 	if err != nil {
-		log.Fatal(err)
+		return err
 	}
 
 	var t signinToken
