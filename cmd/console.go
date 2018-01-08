@@ -23,6 +23,7 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"strconv"
 
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/sts"
@@ -51,6 +52,7 @@ var consoleCmd = &cobra.Command{
 
 var profile string
 var service string
+var sessionDuration string
 var printKeys bool
 
 func init() {
@@ -59,8 +61,34 @@ func init() {
 
 	consoleCmd.Flags().StringVarP(&profile, "profile", "p", "", "AWS CLI profile name")
 	consoleCmd.Flags().StringVarP(&service, "service", "s", "", "AWS Service to connect to")
+	consoleCmd.Flags().StringVarP(&sessionDuration, "session-duration", "t", "12h", "Length of session duration (suffix with s/m/h)")
 	consoleCmd.Flags().BoolVar(&printKeys, "printkeys", false, "Set this to print federated keys to console")
 
+}
+
+func parseSessionDuration(sessionDuration string) (sessionSeconds int64) {
+	// Try to parse duration string as-is
+	sessionSeconds, err := strconv.ParseInt(sessionDuration, 10, 64)
+	if err != nil {
+		// If duration string fails to parse, assume there is a time suffix
+		durationPrefix, err := strconv.ParseInt(sessionDuration[0:len(sessionDuration)-1], 10, 64)
+		if err != nil {
+			log.Fatal(err)
+		}
+		durationSuffix := sessionDuration[len(sessionDuration)-1:]
+
+		switch durationSuffix {
+		case "h":
+			sessionSeconds = int64(durationPrefix * 60 * 60)
+		case "m":
+			sessionSeconds = int64(durationPrefix * 60)
+		case "s":
+			sessionSeconds = int64(durationPrefix)
+		default:
+			log.Fatalf("Session duration suffix \"%s\" is not valid", durationSuffix)
+		}
+	}
+	return sessionSeconds
 }
 
 func openConsole(name string, profile string, service string) error {
@@ -84,7 +112,7 @@ func openConsole(name string, profile string, service string) error {
 		}
 		sess := session.Must(session.NewSessionWithOptions(sessionOptions))
 
-		var duration int64 = 43200 // 12 hours
+		duration := parseSessionDuration(sessionDuration)
 		policy := `{
 			"Version": "2012-10-17",
 			"Statement": [
