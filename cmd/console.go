@@ -21,6 +21,7 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"os"
 	"os/exec"
 
 	"github.com/aws/aws-sdk-go/aws/session"
@@ -30,6 +31,12 @@ import (
 
 type signinToken struct {
 	Token string `json:"SigninToken"`
+}
+
+type awsCredentials struct {
+	AccessKeyID     string
+	SecretAccessKey string
+	SessionToken    string
 }
 
 // consoleCmd represents the console command
@@ -50,7 +57,7 @@ func init() {
 
 	rootCmd.AddCommand(consoleCmd)
 
-	consoleCmd.Flags().StringVarP(&profile, "profile", "p", "Default", "AWS CLI profile name")
+	consoleCmd.Flags().StringVarP(&profile, "profile", "p", "", "AWS CLI profile name")
 	consoleCmd.Flags().StringVarP(&service, "service", "s", "", "AWS Service to connect to")
 	consoleCmd.Flags().BoolVar(&printKeys, "printkeys", false, "Set this to print federated keys to console")
 
@@ -62,42 +69,68 @@ func openConsole(name string, profile string, service string) error {
 		service = "console"
 	}
 
-	sess := session.Must(session.NewSessionWithOptions(session.Options{
-		Profile: profile,
-	}))
+	envSessionToken := os.Getenv("AWS_SESSION_TOKEN")
 
-	stsClient := sts.New(sess)
+	var credentials awsCredentials
+	if envSessionToken == "" {
 
-	var duration int64 = 43200 // 12 hours
-	policy := `{
-		"Version": "2012-10-17",
-		"Statement": [
-			{
-				"Effect": "Allow",
-				"Action": "*",
-				"Resource": "*"
+		var sessionOptions session.Options
+		if profile == "" {
+			sessionOptions = session.Options{}
+		} else {
+			sessionOptions = session.Options{
+				Profile: profile,
 			}
-		]
-	}`
+		}
+		sess := session.Must(session.NewSessionWithOptions(sessionOptions))
 
-	input := sts.GetFederationTokenInput{Name: &name, DurationSeconds: &duration, Policy: &policy}
+		var duration int64 = 43200 // 12 hours
+		policy := `{
+			"Version": "2012-10-17",
+			"Statement": [
+				{
+					"Effect": "Allow",
+					"Action": "*",
+					"Resource": "*"
+				}
+			]
+		}`
 
-	token, err := stsClient.GetFederationToken(&input)
-
-	if err != nil {
-		log.Fatal(err)
+		stsClient := sts.New(sess)
+		input := sts.GetFederationTokenInput{Name: &name, DurationSeconds: &duration, Policy: &policy}
+		tokenResponse, err := stsClient.GetFederationToken(&input)
+		if err != nil {
+			log.Fatal(err)
+		}
+		credentials = awsCredentials{
+			AccessKeyID:     *tokenResponse.Credentials.AccessKeyId,
+			SecretAccessKey: *tokenResponse.Credentials.SecretAccessKey,
+			SessionToken:    *tokenResponse.Credentials.SessionToken,
+		}
+	} else {
+		credentials = awsCredentials{
+			AccessKeyID:     os.Getenv("AWS_ACCESS_KEY_ID"),
+			SecretAccessKey: os.Getenv("AWS_SECRET_ACCESS_KEY"),
+			SessionToken:    envSessionToken,
+		}
+	}
+	if credentials.AccessKeyID == "" || credentials.SecretAccessKey == "" {
+		log.Fatal(
+			"\"AWS_ACCESS_KEY_ID\" and \"AWS_SECRET_ACCESS_KEY\" environment " +
+				"variables must be set when using \"AWS_SESSION_TOKEN\"",
+		)
 	}
 
 	sessionString := "{" +
-		"\"sessionId\":\"" + *token.Credentials.AccessKeyId + "\"," +
-		"\"sessionKey\":\"" + *token.Credentials.SecretAccessKey + "\"," +
-		"\"sessionToken\":\"" + *token.Credentials.SessionToken + "\"" +
+		"\"sessionId\":\"" + credentials.AccessKeyID + "\"," +
+		"\"sessionKey\":\"" + credentials.SecretAccessKey + "\"," +
+		"\"sessionToken\":\"" + credentials.SessionToken + "\"" +
 		"}"
 
 	if printKeys {
-		fmt.Printf("Session ID: %s \n", *token.Credentials.AccessKeyId)
-		fmt.Printf("Session Key: %s \n", *token.Credentials.SecretAccessKey)
-		fmt.Printf("Session Token: %s \n", *token.Credentials.SessionToken)
+		fmt.Printf("Session ID:    %s \n", credentials.AccessKeyID)
+		fmt.Printf("Session Key:   %s \n", credentials.SecretAccessKey)
+		fmt.Printf("Session Token: %s \n", credentials.SessionToken)
 	}
 
 	federationURL, err := url.Parse("https://signin.aws.amazon.com/federation")
