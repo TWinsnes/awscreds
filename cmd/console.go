@@ -24,6 +24,7 @@ import (
 	"os"
 	"os/exec"
 	"strconv"
+	"strings"
 
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/sts"
@@ -46,7 +47,7 @@ var consoleCmd = &cobra.Command{
 	Short: "Logs into and opens console in default browser using aws cli profile",
 	Long:  ``,
 	Run: func(cmd *cobra.Command, args []string) {
-		openConsole("awscreds", profile, service)
+		openConsole(profile, service)
 	},
 }
 
@@ -91,7 +92,7 @@ func parseSessionDuration(sessionDuration string) (sessionSeconds int64) {
 	return sessionSeconds
 }
 
-func openConsole(name string, profile string, service string) error {
+func openConsole(profile string, service string) error {
 
 	if service == "" {
 		service = "console"
@@ -125,7 +126,16 @@ func openConsole(name string, profile string, service string) error {
 		}`
 
 		stsClient := sts.New(sess)
-		input := sts.GetFederationTokenInput{Name: &name, DurationSeconds: &duration, Policy: &policy}
+
+		var callerIdentityInput *sts.GetCallerIdentityInput
+		callerIdentity, err := stsClient.GetCallerIdentity(callerIdentityInput)
+		if err != nil {
+			log.Fatal(err)
+		}
+		splitArn := strings.Split(*callerIdentity.Arn, "/")
+		username := splitArn[len(splitArn)-1]
+
+		input := sts.GetFederationTokenInput{Name: &username, DurationSeconds: &duration, Policy: &policy}
 		tokenResponse, err := stsClient.GetFederationToken(&input)
 		if err != nil {
 			log.Fatal(err)
