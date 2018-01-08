@@ -21,7 +21,10 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"os"
 	"os/exec"
+	"strconv"
+	"strings"
 
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/sts"
@@ -32,72 +35,140 @@ type signinToken struct {
 	Token string `json:"SigninToken"`
 }
 
+type awsCredentials struct {
+	AccessKeyID     string
+	SecretAccessKey string
+	SessionToken    string
+}
+
 // consoleCmd represents the console command
 var consoleCmd = &cobra.Command{
 	Use:   "console",
 	Short: "Logs into and opens console in default browser using aws cli profile",
 	Long:  ``,
 	Run: func(cmd *cobra.Command, args []string) {
-		openConsole("awscreds", profile, service)
+		openConsole(profile, service)
 	},
 }
 
 var profile string
 var service string
+var sessionDuration string
 var printKeys bool
 
 func init() {
 
 	rootCmd.AddCommand(consoleCmd)
 
-	consoleCmd.Flags().StringVarP(&profile, "profile", "p", "Default", "AWS CLI profile name")
+	consoleCmd.Flags().StringVarP(&profile, "profile", "p", "", "AWS CLI profile name")
 	consoleCmd.Flags().StringVarP(&service, "service", "s", "", "AWS Service to connect to")
+	consoleCmd.Flags().StringVarP(&sessionDuration, "session-duration", "t", "12h", "Length of session duration (suffix with s/m/h)")
 	consoleCmd.Flags().BoolVar(&printKeys, "printkeys", false, "Set this to print federated keys to console")
 
 }
 
-func openConsole(name string, profile string, service string) error {
+func parseSessionDuration(sessionDuration string) (sessionSeconds int64) {
+	// Try to parse duration string as-is
+	sessionSeconds, err := strconv.ParseInt(sessionDuration, 10, 64)
+	if err != nil {
+		// If duration string fails to parse, assume there is a time suffix
+		durationPrefix, err := strconv.ParseInt(sessionDuration[0:len(sessionDuration)-1], 10, 64)
+		if err != nil {
+			log.Fatal(err)
+		}
+		durationSuffix := sessionDuration[len(sessionDuration)-1:]
+
+		switch durationSuffix {
+		case "h":
+			sessionSeconds = int64(durationPrefix * 60 * 60)
+		case "m":
+			sessionSeconds = int64(durationPrefix * 60)
+		case "s":
+			sessionSeconds = int64(durationPrefix)
+		default:
+			log.Fatalf("Session duration suffix \"%s\" is not valid", durationSuffix)
+		}
+	}
+	return sessionSeconds
+}
+
+func openConsole(profile string, service string) error {
 
 	if service == "" {
 		service = "console"
 	}
 
-	sess := session.Must(session.NewSessionWithOptions(session.Options{
-		Profile: profile,
-	}))
+	envSessionToken := os.Getenv("AWS_SESSION_TOKEN")
 
-	stsClient := sts.New(sess)
+	var credentials awsCredentials
+	if envSessionToken == "" {
 
-	var duration int64 = 43200 // 12 hours
-	policy := `{
-		"Version": "2012-10-17",
-		"Statement": [
-			{
-				"Effect": "Allow",
-				"Action": "*",
-				"Resource": "*"
+		var sessionOptions session.Options
+		if profile == "" {
+			sessionOptions = session.Options{}
+		} else {
+			sessionOptions = session.Options{
+				Profile: profile,
 			}
-		]
-	}`
+		}
+		sess := session.Must(session.NewSessionWithOptions(sessionOptions))
 
-	input := sts.GetFederationTokenInput{Name: &name, DurationSeconds: &duration, Policy: &policy}
+		duration := parseSessionDuration(sessionDuration)
+		policy := `{
+			"Version": "2012-10-17",
+			"Statement": [
+				{
+					"Effect": "Allow",
+					"Action": "*",
+					"Resource": "*"
+				}
+			]
+		}`
 
-	token, err := stsClient.GetFederationToken(&input)
+		stsClient := sts.New(sess)
 
-	if err != nil {
-		log.Fatal(err)
+		var callerIdentityInput *sts.GetCallerIdentityInput
+		callerIdentity, err := stsClient.GetCallerIdentity(callerIdentityInput)
+		if err != nil {
+			log.Fatal(err)
+		}
+		splitArn := strings.Split(*callerIdentity.Arn, "/")
+		username := splitArn[len(splitArn)-1]
+
+		input := sts.GetFederationTokenInput{Name: &username, DurationSeconds: &duration, Policy: &policy}
+		tokenResponse, err := stsClient.GetFederationToken(&input)
+		if err != nil {
+			log.Fatal(err)
+		}
+		credentials = awsCredentials{
+			AccessKeyID:     *tokenResponse.Credentials.AccessKeyId,
+			SecretAccessKey: *tokenResponse.Credentials.SecretAccessKey,
+			SessionToken:    *tokenResponse.Credentials.SessionToken,
+		}
+	} else {
+		credentials = awsCredentials{
+			AccessKeyID:     os.Getenv("AWS_ACCESS_KEY_ID"),
+			SecretAccessKey: os.Getenv("AWS_SECRET_ACCESS_KEY"),
+			SessionToken:    envSessionToken,
+		}
+	}
+	if credentials.AccessKeyID == "" || credentials.SecretAccessKey == "" {
+		log.Fatal(
+			"\"AWS_ACCESS_KEY_ID\" and \"AWS_SECRET_ACCESS_KEY\" environment " +
+				"variables must be set when using \"AWS_SESSION_TOKEN\"",
+		)
 	}
 
 	sessionString := "{" +
-		"\"sessionId\":\"" + *token.Credentials.AccessKeyId + "\"," +
-		"\"sessionKey\":\"" + *token.Credentials.SecretAccessKey + "\"," +
-		"\"sessionToken\":\"" + *token.Credentials.SessionToken + "\"" +
+		"\"sessionId\":\"" + credentials.AccessKeyID + "\"," +
+		"\"sessionKey\":\"" + credentials.SecretAccessKey + "\"," +
+		"\"sessionToken\":\"" + credentials.SessionToken + "\"" +
 		"}"
 
 	if printKeys {
-		fmt.Printf("Session ID: %s \n", *token.Credentials.AccessKeyId)
-		fmt.Printf("Session Key: %s \n", *token.Credentials.SecretAccessKey)
-		fmt.Printf("Session Token: %s \n", *token.Credentials.SessionToken)
+		fmt.Printf("Session ID:    %s \n", credentials.AccessKeyID)
+		fmt.Printf("Session Key:   %s \n", credentials.SecretAccessKey)
+		fmt.Printf("Session Token: %s \n", credentials.SessionToken)
 	}
 
 	federationURL, err := url.Parse("https://signin.aws.amazon.com/federation")
