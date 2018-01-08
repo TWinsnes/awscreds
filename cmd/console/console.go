@@ -7,8 +7,11 @@ import (
 	"io/ioutil"
 	"net/http"
 	"net/url"
+	"os"
 	"os/exec"
 	"runtime"
+	"strconv"
+	"strings"
 
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/sts"
@@ -28,54 +31,60 @@ type DefaultBrowser struct{}
 
 // Console wrapper for the console command
 type Console struct {
-	Profile   string
-	Service   string
-	PrintKeys bool
+	Profile         string
+	Service         string
+	SessionDuration string
+	PrintKeys       bool
+}
+
+// awsCredentials acts as a credential storage structure across providers
+type awsCredentials struct {
+	AccessKeyID     string
+	SecretAccessKey string
+	SessionToken    string
 }
 
 // OpenConsole opens the console using
-func (c *Console) OpenConsole(name string, browser Browser) error {
-
+func (c *Console) OpenConsole(browser Browser) error {
 	if c.Service == "" {
 		c.Service = "console"
 	}
 
-	sess := session.Must(session.NewSessionWithOptions(session.Options{
-		Profile: c.Profile,
-	}))
-
-	stsClient := sts.New(sess)
-
-	var duration int64 = 43200 // 12 hours
-	policy := `{
-		"Version": "2012-10-17",
-		"Statement": [
-			{
-				"Effect": "Allow",
-				"Action": "*",
-				"Resource": "*"
-			}
-		]
-	}`
-
-	input := sts.GetFederationTokenInput{Name: &name, DurationSeconds: &duration, Policy: &policy}
-
-	token, err := stsClient.GetFederationToken(&input)
-
+	duration, err := c.parseSessionDuration()
 	if err != nil {
 		return err
 	}
 
+	// Precedence:
+	// 1. Session environment variables (These will always override anyway)
+	// 2. SDK Preference
+	//
+	// Session environment variables are preferenced over the SDK due to the
+	// different mechanism to obtain credentials. If you already have an STS
+	// Session Token, you are unable to call GetFederationToken; These
+	// credentials _can_ however be used directly against the federation service
+	var credentials awsCredentials
+	envCredentials, envCredErr := getCredentialsFromEnvironment()
+	switch {
+	case envCredErr == nil:
+		credentials = envCredentials
+	default:
+		credentials, err = getCredentialsFromIamUser(c.Profile, duration)
+		if err != nil {
+			return err
+		}
+	}
+
 	sessionString := "{" +
-		"\"sessionId\":\"" + *token.Credentials.AccessKeyId + "\"," +
-		"\"sessionKey\":\"" + *token.Credentials.SecretAccessKey + "\"," +
-		"\"sessionToken\":\"" + *token.Credentials.SessionToken + "\"" +
+		"\"sessionId\":\"" + credentials.AccessKeyID + "\"," +
+		"\"sessionKey\":\"" + credentials.SecretAccessKey + "\"," +
+		"\"sessionToken\":\"" + credentials.SessionToken + "\"" +
 		"}"
 
 	if c.PrintKeys {
-		fmt.Printf("Session ID: %s \n", *token.Credentials.AccessKeyId)
-		fmt.Printf("Session Key: %s \n", *token.Credentials.SecretAccessKey)
-		fmt.Printf("Session Token: %s \n", *token.Credentials.SessionToken)
+		fmt.Printf("Session ID:    %s \n", credentials.AccessKeyID)
+		fmt.Printf("Session Key:   %s \n", credentials.SecretAccessKey)
+		fmt.Printf("Session Token: %s \n", credentials.SessionToken)
 	}
 
 	federationURL, err := url.Parse("https://signin.aws.amazon.com/federation")
@@ -132,6 +141,103 @@ func (c *Console) getLoginURL(service string, token string) (string, error) {
 
 	loginURL := urlStruct.String()
 	return loginURL, err
+}
+
+func getAwsUsername(stsClient *sts.STS) (string, error) {
+	var callerIdentityInput *sts.GetCallerIdentityInput
+	callerIdentity, err := stsClient.GetCallerIdentity(callerIdentityInput)
+	if err != nil {
+		return "", err
+	}
+	splitArn := strings.Split(*callerIdentity.Arn, "/")
+	username := splitArn[len(splitArn)-1]
+	return username, nil
+}
+
+func getCredentialsFromEnvironment() (awsCredentials, error) {
+	credentials := awsCredentials{
+		AccessKeyID:     os.Getenv("AWS_ACCESS_KEY_ID"),
+		SecretAccessKey: os.Getenv("AWS_SECRET_ACCESS_KEY"),
+		SessionToken:    os.Getenv("AWS_SESSION_TOKEN"),
+	}
+	if credentials.AccessKeyID == "" ||
+		credentials.SecretAccessKey == "" ||
+		credentials.SessionToken == "" {
+		err := fmt.Errorf("\"AWS_ACCESS_KEY_ID\", \"AWS_SECRET_ACCESS_KEY\", " +
+			"and \"AWS_SESSION_TOKEN\" environment variables must be set when" +
+			" using environment variables for authentication.")
+		return credentials, err
+	}
+	return credentials, nil
+}
+
+func getCredentialsFromIamUser(profile string, sessionDuration int64) (awsCredentials, error) {
+	var credentials awsCredentials
+	var sessionOptions session.Options
+
+	if profile == "" {
+		sessionOptions = session.Options{}
+	} else {
+		sessionOptions = session.Options{Profile: profile}
+	}
+
+	policy := `{
+		"Version": "2012-10-17",
+		"Statement": [
+			{
+				"Effect": "Allow",
+				"Action": "*",
+				"Resource": "*"
+			}
+		]
+	}`
+
+	sess := session.Must(session.NewSessionWithOptions(sessionOptions))
+	stsClient := sts.New(sess)
+
+	username, err := getAwsUsername(stsClient)
+	if err != nil {
+		return credentials, err
+	}
+	input := sts.GetFederationTokenInput{Name: &username, DurationSeconds: &sessionDuration, Policy: &policy}
+
+	tokenResponse, err := stsClient.GetFederationToken(&input)
+	if err != nil {
+		return credentials, err
+	}
+
+	credentials = awsCredentials{
+		AccessKeyID:     *tokenResponse.Credentials.AccessKeyId,
+		SecretAccessKey: *tokenResponse.Credentials.SecretAccessKey,
+		SessionToken:    *tokenResponse.Credentials.SessionToken,
+	}
+
+	return credentials, nil
+}
+
+func (c *Console) parseSessionDuration() (int64, error) {
+	// Try to parse duration string as-is
+	sessionSeconds, err := strconv.ParseInt(c.SessionDuration, 10, 64)
+	if err != nil {
+		// If duration string fails to parse, assume there is a time suffix
+		durationPrefix, err := strconv.ParseInt(c.SessionDuration[0:len(c.SessionDuration)-1], 10, 64)
+		if err != nil {
+			return 0, err
+		}
+		durationSuffix := c.SessionDuration[len(c.SessionDuration)-1:]
+
+		switch durationSuffix {
+		case "h":
+			sessionSeconds = int64(durationPrefix * 60 * 60)
+		case "m":
+			sessionSeconds = int64(durationPrefix * 60)
+		case "s":
+			sessionSeconds = int64(durationPrefix)
+		default:
+			return 0, fmt.Errorf("Session duration suffix \"%s\" is not valid", durationSuffix)
+		}
+	}
+	return sessionSeconds, nil
 }
 
 // Open Opens url in default browser

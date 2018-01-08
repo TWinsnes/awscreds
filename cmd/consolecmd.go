@@ -28,7 +28,7 @@ var consoleCmd = &cobra.Command{
 	Long:  ``,
 	Run: func(cmd *cobra.Command, args []string) {
 		browser := console.DefaultBrowser{}
-		err := consoleOptions.OpenConsole("awscreds", browser)
+		err := consoleOptions.OpenConsole(browser)
 
 		if err != nil {
 			log.Fatal(err)
@@ -42,8 +42,9 @@ func init() {
 
 	rootCmd.AddCommand(consoleCmd)
 
-	consoleCmd.Flags().StringVarP(&consoleOptions.Profile, "profile", "p", "Default", "AWS CLI profile name")
+	consoleCmd.Flags().StringVarP(&consoleOptions.Profile, "profile", "p", "", "AWS CLI profile name")
 	consoleCmd.Flags().StringVarP(&consoleOptions.Service, "service", "s", "", "AWS Service to connect to")
+	consoleCmd.Flags().StringVarP(&consoleOptions.SessionDuration, "session-duration", "t", "12h", "Length of session duration (suffix with s/m/h)")
 	consoleCmd.Flags().BoolVar(&consoleOptions.PrintKeys, "printkeys", false, "Set this to print federated keys to console")
 
 }
