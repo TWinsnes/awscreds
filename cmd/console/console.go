@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/aws/aws-sdk-go/aws/credentials"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/sts"
 )
@@ -26,6 +27,14 @@ type Browser interface {
 	Open(url string) error
 }
 
+// SdkHelper describes an object that helps
+type SdkHelper interface {
+	GetFederationToken(profile string, name string, duration int64) (AwsCredentials, error)
+}
+
+// DefaultSdkHelper is the default sdk helper implementation
+type DefaultSdkHelper struct{}
+
 // DefaultBrowser represents system default browser
 type DefaultBrowser struct{}
 
@@ -37,20 +46,66 @@ type Console struct {
 	PrintKeys       bool
 }
 
-// awsCredentials acts as a credential storage structure across providers
-type awsCredentials struct {
+// AwsCredentials acts as a credential storage structure across providers
+type AwsCredentials struct {
 	AccessKeyID     string
 	SecretAccessKey string
 	SessionToken    string
 }
 
+// GetFederationToken s
+func (DefaultSdkHelper) GetFederationToken(profile string, name string, duration int64) (AwsCredentials, error) {
+	sess := session.Must(session.NewSessionWithOptions(session.Options{
+		Profile: profile,
+	}))
+
+	sess.Config.Credentials = credentials.NewSharedCredentials("", profile)
+
+	stsClient := sts.New(sess)
+
+	policy := `{
+		"Version": "2012-10-17",
+		"Statement": [
+			{
+				"Effect": "Allow",
+				"Action": "*",
+				"Resource": "*"
+			}
+		]
+	}`
+
+	input := sts.GetFederationTokenInput{Name: &name, DurationSeconds: &duration, Policy: &policy}
+
+	token, err := stsClient.GetFederationToken(&input)
+
+	credentials := AwsCredentials{
+		AccessKeyID:     *token.Credentials.AccessKeyId,
+		SecretAccessKey: *token.Credentials.SecretAccessKey,
+		SessionToken:    *token.Credentials.SessionToken,
+	}
+
+	return credentials, err
+}
+
 // OpenConsole opens the console using
-func (c *Console) OpenConsole(browser Browser) error {
+func (c *Console) OpenConsole(browser Browser, sdkHelper SdkHelper) error {
+
+	var creds AwsCredentials
+	var err error
+
 	if c.Service == "" {
 		c.Service = "console"
 	}
 
 	duration, err := c.parseSessionDuration()
+
+	if err != nil {
+		return err
+	}
+
+	if c.Profile != "" {
+		creds, err = sdkHelper.GetFederationToken(c.Profile, "federated", duration)
+	}
 	if err != nil {
 		return err
 	}
@@ -63,28 +118,28 @@ func (c *Console) OpenConsole(browser Browser) error {
 	// different mechanism to obtain credentials. If you already have an STS
 	// Session Token, you are unable to call GetFederationToken; These
 	// credentials _can_ however be used directly against the federation service
-	var credentials awsCredentials
-	envCredentials, envCredErr := getCredentialsFromEnvironment()
-	switch {
-	case envCredErr == nil:
-		credentials = envCredentials
-	default:
-		credentials, err = getCredentialsFromIamUser(c.Profile, duration)
-		if err != nil {
-			return err
-		}
-	}
+	// var credentials awsCredentials
+	// envCredentials, envCredErr := getCredentialsFromEnvironment()
+	// switch {
+	// case envCredErr == nil:
+	// 	credentials = envCredentials
+	// default:
+	// 	credentials, err = getCredentialsFromIamUser(c.Profile, duration)
+	// 	if err != nil {
+	// 		return err
+	// 	}
+	// }
 
 	sessionString := "{" +
-		"\"sessionId\":\"" + credentials.AccessKeyID + "\"," +
-		"\"sessionKey\":\"" + credentials.SecretAccessKey + "\"," +
-		"\"sessionToken\":\"" + credentials.SessionToken + "\"" +
+		"\"sessionId\":\"" + creds.AccessKeyID + "\"," +
+		"\"sessionKey\":\"" + creds.SecretAccessKey + "\"," +
+		"\"sessionToken\":\"" + creds.SessionToken + "\"" +
 		"}"
 
 	if c.PrintKeys {
-		fmt.Printf("Session ID:    %s \n", credentials.AccessKeyID)
-		fmt.Printf("Session Key:   %s \n", credentials.SecretAccessKey)
-		fmt.Printf("Session Token: %s \n", credentials.SessionToken)
+		fmt.Printf("Session ID:    %s \n", creds.AccessKeyID)
+		fmt.Printf("Session Key:   %s \n", creds.SecretAccessKey)
+		fmt.Printf("Session Token: %s \n", creds.SessionToken)
 	}
 
 	federationURL, err := url.Parse("https://signin.aws.amazon.com/federation")
@@ -154,25 +209,28 @@ func getAwsUsername(stsClient *sts.STS) (string, error) {
 	return username, nil
 }
 
-func getCredentialsFromEnvironment() (awsCredentials, error) {
-	credentials := awsCredentials{
+func getCredentialsFromEnvironment() (AwsCredentials, error) {
+	credentials := AwsCredentials{
 		AccessKeyID:     os.Getenv("AWS_ACCESS_KEY_ID"),
 		SecretAccessKey: os.Getenv("AWS_SECRET_ACCESS_KEY"),
 		SessionToken:    os.Getenv("AWS_SESSION_TOKEN"),
 	}
+
 	if credentials.AccessKeyID == "" ||
 		credentials.SecretAccessKey == "" ||
 		credentials.SessionToken == "" {
 		err := fmt.Errorf("\"AWS_ACCESS_KEY_ID\", \"AWS_SECRET_ACCESS_KEY\", " +
 			"and \"AWS_SESSION_TOKEN\" environment variables must be set when" +
 			" using environment variables for authentication.")
+
 		return credentials, err
 	}
+
 	return credentials, nil
 }
 
-func getCredentialsFromIamUser(profile string, sessionDuration int64) (awsCredentials, error) {
-	var credentials awsCredentials
+func (Console) getCredentialsFromIamUser(profile string, sessionDuration int64) (AwsCredentials, error) {
+	var credentials AwsCredentials
 	var sessionOptions session.Options
 
 	if profile == "" {
@@ -206,7 +264,7 @@ func getCredentialsFromIamUser(profile string, sessionDuration int64) (awsCreden
 		return credentials, err
 	}
 
-	credentials = awsCredentials{
+	credentials = AwsCredentials{
 		AccessKeyID:     *tokenResponse.Credentials.AccessKeyId,
 		SecretAccessKey: *tokenResponse.Credentials.SecretAccessKey,
 		SessionToken:    *tokenResponse.Credentials.SessionToken,

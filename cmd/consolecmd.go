@@ -28,7 +28,9 @@ var consoleCmd = &cobra.Command{
 	Long:  ``,
 	Run: func(cmd *cobra.Command, args []string) {
 		browser := console.DefaultBrowser{}
-		err := consoleOptions.OpenConsole(browser)
+		sdkHelper := console.DefaultSdkHelper{}
+
+		err := consoleOptions.OpenConsole(browser, sdkHelper)
 
 		if err != nil {
 			log.Fatal(err)
