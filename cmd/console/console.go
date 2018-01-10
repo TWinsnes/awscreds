@@ -56,8 +56,9 @@ func (c *Console) OpenConsole(browser Browser) error {
 	}
 
 	// Precedence:
-	// 1. Session environment variables (These will always override anyway)
-	// 2. SDK Preference
+	// 1. Profile defined as a parameter
+	// 2. Session environment variables
+	// 3. SDK Preference
 	//
 	// Session environment variables are preferenced over the SDK due to the
 	// different mechanism to obtain credentials. If you already have an STS
@@ -66,10 +67,20 @@ func (c *Console) OpenConsole(browser Browser) error {
 	var credentials awsCredentials
 	envCredentials, envCredErr := getCredentialsFromEnvironment()
 	switch {
+	case c.Profile != "":
+		os.Unsetenv("AWS_PROFILE")
+		os.Unsetenv("AWS_DEFAULT_PROFILE")
+		os.Unsetenv("AWS_ACCESS_KEY_ID")
+		os.Unsetenv("AWS_SECRET_ACCESS_KEY")
+		os.Unsetenv("AWS_SESSION_TOKEN")
+		credentials, err = getCredentialsFromIamUser(c.Profile, duration)
+		if err != nil {
+			return err
+		}
 	case envCredErr == nil:
 		credentials = envCredentials
 	default:
-		credentials, err = getCredentialsFromIamUser(c.Profile, duration)
+		credentials, err = getCredentialsFromIamUser("", duration)
 		if err != nil {
 			return err
 		}
