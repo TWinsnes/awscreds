@@ -161,7 +161,14 @@ func getAwsUsername(stsClient *sts.STS) (string, error) {
 		return "", err
 	}
 	splitArn := strings.Split(*callerIdentity.Arn, "/")
-	username := splitArn[len(splitArn)-1]
+	usernameField := splitArn[len(splitArn)-1]
+	var username string
+	// Session name length limit is 32 characters
+	if len(usernameField) > 32 {
+		username = usernameField[:31]
+	} else {
+		username = usernameField
+	}
 	return username, nil
 }
 
