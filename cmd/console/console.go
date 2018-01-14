@@ -13,8 +13,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/sts"
+	"github.com/aws/aws-sdk-go/service/sts/stsiface"
 )
 
 const policy string = `{
@@ -65,7 +65,19 @@ func (c *Console) OpenConsole(browser Browser, sdkHelper SdkHelper) error {
 		c.Service = "console"
 	}
 
+	stsClient, err := sdkHelper.GetStsClient(c.Profile)
+
+	if err != nil {
+		return err
+	}
+
 	duration, err := c.parseSessionDuration(c.SessionDuration)
+
+	if err != nil {
+		return err
+	}
+
+	userName, err := c.getAwsUsername(stsClient)
 
 	if err != nil {
 		return err
@@ -74,28 +86,24 @@ func (c *Console) OpenConsole(browser Browser, sdkHelper SdkHelper) error {
 	// override the default sdk behaviour of using env vars over anything else
 	// this follows the convention of the cli
 	if c.Profile != "" {
-		creds, err = sdkHelper.GetFederationToken(c.Profile, "federated", duration)
+		creds, err = c.getFederationToken(stsClient, userName, duration)
 
 		if err != nil {
 			return err
 		}
 	} else {
-		// Precedence:
-		// 1. Session environment variables (These will always override anyway)
-		// 2. SDK Preference
-		//
-		// Session environment variables are preferenced over the SDK due to the
-		// different mechanism to obtain credentials. If you already have an STS
-		// Session Token, you are unable to call GetFederationToken; These
-		// credentials _can_ however be used directly against the federation service
 
+		// If profile has not been set explicitly we fall back to default SDK
+		// behaviour. Since we can't use an sts token to get federated
+		// credentials, we try to load those from environment variables.
+		// If that fails, we leave it to the SDK to figure out credentials.
 		envCredentials, envCredErr := c.getCredentialsFromEnvironment()
 
-		switch {
-		case envCredErr == nil:
+		if envCredErr == nil {
 			creds = envCredentials
-		default:
-			creds, err = c.getCredentialsFromIamUser(c.Profile, duration, sdkHelper)
+		} else {
+			creds, err = c.getFederationToken(stsClient, userName, duration)
+
 			if err != nil {
 				return err
 			}
@@ -170,9 +178,17 @@ func (c *Console) getLoginURL(service string, token string) (string, error) {
 	return loginURL, err
 }
 
-func (c *Console) getAwsUsername(stsClient *sts.STS, sdkHelper SdkHelper) (string, error) {
+func (c *Console) getAwsUsername(stsClient stsiface.STSAPI) (string, error) {
 
-	callerIdentity, err := sdkHelper.GetCallerIdentity(stsClient)
+	var callerIdentityInput *sts.GetCallerIdentityInput
+
+	output, err := stsClient.GetCallerIdentity(callerIdentityInput)
+
+	if err != nil {
+		return "", err
+	}
+
+	callerIdentity := *output.Arn
 
 	if err != nil {
 		return "", err
@@ -204,42 +220,6 @@ func (c *Console) getCredentialsFromEnvironment() (AwsCredentials, error) {
 	return credentials, nil
 }
 
-func (c *Console) getCredentialsFromIamUser(profile string, sessionDuration int64, sdkHelper SdkHelper) (AwsCredentials, error) {
-	var credentials AwsCredentials
-	var sessionOptions session.Options
-
-	if profile == "" {
-		sessionOptions = session.Options{}
-	} else {
-		sessionOptions = session.Options{Profile: profile}
-	}
-
-	sess := session.Must(session.NewSessionWithOptions(sessionOptions))
-	stsClient := sts.New(sess)
-
-	username, err := c.getAwsUsername(stsClient, sdkHelper)
-	if err != nil {
-		return credentials, err
-	}
-
-	localPolicy := policy // can't reference a const, wil have to copy this
-
-	input := sts.GetFederationTokenInput{Name: &username, DurationSeconds: &sessionDuration, Policy: &localPolicy}
-
-	tokenResponse, err := stsClient.GetFederationToken(&input)
-	if err != nil {
-		return credentials, err
-	}
-
-	credentials = AwsCredentials{
-		AccessKeyID:     *tokenResponse.Credentials.AccessKeyId,
-		SecretAccessKey: *tokenResponse.Credentials.SecretAccessKey,
-		SessionToken:    *tokenResponse.Credentials.SessionToken,
-	}
-
-	return credentials, nil
-}
-
 func (c *Console) parseSessionDuration(duration string) (int64, error) {
 	// Try to parse duration string as-is
 	sessionSeconds, err := strconv.ParseInt(duration, 10, 64)
@@ -263,6 +243,23 @@ func (c *Console) parseSessionDuration(duration string) (int64, error) {
 		}
 	}
 	return sessionSeconds, nil
+}
+
+func (c *Console) getFederationToken(stsClient stsiface.STSAPI, name string, duration int64) (AwsCredentials, error) {
+
+	localPolicy := policy // can't reference a const, wil have to copy this
+
+	input := sts.GetFederationTokenInput{Name: &name, DurationSeconds: &duration, Policy: &localPolicy}
+
+	token, err := stsClient.GetFederationToken(&input)
+
+	credentials := AwsCredentials{
+		AccessKeyID:     *token.Credentials.AccessKeyId,
+		SecretAccessKey: *token.Credentials.SecretAccessKey,
+		SessionToken:    *token.Credentials.SessionToken,
+	}
+
+	return credentials, err
 }
 
 // Open Opens url in default browser
