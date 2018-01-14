@@ -13,10 +13,20 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/aws/aws-sdk-go/aws/credentials"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/sts"
 )
+
+const policy string = `{
+	"Version": "2012-10-17",
+	"Statement": [
+		{
+			"Effect": "Allow",
+			"Action": "*",
+			"Resource": "*"
+		}
+	]
+}`
 
 type signinToken struct {
 	Token string `json:"SigninToken"`
@@ -26,14 +36,6 @@ type signinToken struct {
 type Browser interface {
 	Open(url string) error
 }
-
-// SdkHelper describes an object that helps
-type SdkHelper interface {
-	GetFederationToken(profile string, name string, duration int64) (AwsCredentials, error)
-}
-
-// DefaultSdkHelper is the default sdk helper implementation
-type DefaultSdkHelper struct{}
 
 // DefaultBrowser represents system default browser
 type DefaultBrowser struct{}
@@ -53,40 +55,6 @@ type AwsCredentials struct {
 	SessionToken    string
 }
 
-// GetFederationToken s
-func (DefaultSdkHelper) GetFederationToken(profile string, name string, duration int64) (AwsCredentials, error) {
-	sess := session.Must(session.NewSessionWithOptions(session.Options{
-		Profile: profile,
-	}))
-
-	sess.Config.Credentials = credentials.NewSharedCredentials("", profile)
-
-	stsClient := sts.New(sess)
-
-	policy := `{
-		"Version": "2012-10-17",
-		"Statement": [
-			{
-				"Effect": "Allow",
-				"Action": "*",
-				"Resource": "*"
-			}
-		]
-	}`
-
-	input := sts.GetFederationTokenInput{Name: &name, DurationSeconds: &duration, Policy: &policy}
-
-	token, err := stsClient.GetFederationToken(&input)
-
-	credentials := AwsCredentials{
-		AccessKeyID:     *token.Credentials.AccessKeyId,
-		SecretAccessKey: *token.Credentials.SecretAccessKey,
-		SessionToken:    *token.Credentials.SessionToken,
-	}
-
-	return credentials, err
-}
-
 // OpenConsole opens the console using
 func (c *Console) OpenConsole(browser Browser, sdkHelper SdkHelper) error {
 
@@ -97,38 +65,42 @@ func (c *Console) OpenConsole(browser Browser, sdkHelper SdkHelper) error {
 		c.Service = "console"
 	}
 
-	duration, err := c.parseSessionDuration()
+	duration, err := c.parseSessionDuration(c.SessionDuration)
 
 	if err != nil {
 		return err
 	}
 
+	// override the default sdk behaviour of using env vars over anything else
+	// this follows the convention of the cli
 	if c.Profile != "" {
 		creds, err = sdkHelper.GetFederationToken(c.Profile, "federated", duration)
-	}
-	if err != nil {
-		return err
-	}
 
-	// Precedence:
-	// 1. Session environment variables (These will always override anyway)
-	// 2. SDK Preference
-	//
-	// Session environment variables are preferenced over the SDK due to the
-	// different mechanism to obtain credentials. If you already have an STS
-	// Session Token, you are unable to call GetFederationToken; These
-	// credentials _can_ however be used directly against the federation service
-	// var credentials awsCredentials
-	// envCredentials, envCredErr := getCredentialsFromEnvironment()
-	// switch {
-	// case envCredErr == nil:
-	// 	credentials = envCredentials
-	// default:
-	// 	credentials, err = getCredentialsFromIamUser(c.Profile, duration)
-	// 	if err != nil {
-	// 		return err
-	// 	}
-	// }
+		if err != nil {
+			return err
+		}
+	} else {
+		// Precedence:
+		// 1. Session environment variables (These will always override anyway)
+		// 2. SDK Preference
+		//
+		// Session environment variables are preferenced over the SDK due to the
+		// different mechanism to obtain credentials. If you already have an STS
+		// Session Token, you are unable to call GetFederationToken; These
+		// credentials _can_ however be used directly against the federation service
+
+		envCredentials, envCredErr := c.getCredentialsFromEnvironment()
+
+		switch {
+		case envCredErr == nil:
+			creds = envCredentials
+		default:
+			creds, err = c.getCredentialsFromIamUser(c.Profile, duration, sdkHelper)
+			if err != nil {
+				return err
+			}
+		}
+	}
 
 	sessionString := "{" +
 		"\"sessionId\":\"" + creds.AccessKeyID + "\"," +
@@ -198,18 +170,21 @@ func (c *Console) getLoginURL(service string, token string) (string, error) {
 	return loginURL, err
 }
 
-func getAwsUsername(stsClient *sts.STS) (string, error) {
-	var callerIdentityInput *sts.GetCallerIdentityInput
-	callerIdentity, err := stsClient.GetCallerIdentity(callerIdentityInput)
+func (c *Console) getAwsUsername(stsClient *sts.STS, sdkHelper SdkHelper) (string, error) {
+
+	callerIdentity, err := sdkHelper.GetCallerIdentity(stsClient)
+
 	if err != nil {
 		return "", err
 	}
-	splitArn := strings.Split(*callerIdentity.Arn, "/")
+
+	splitArn := strings.Split(callerIdentity, "/")
 	username := splitArn[len(splitArn)-1]
+
 	return username, nil
 }
 
-func getCredentialsFromEnvironment() (AwsCredentials, error) {
+func (c *Console) getCredentialsFromEnvironment() (AwsCredentials, error) {
 	credentials := AwsCredentials{
 		AccessKeyID:     os.Getenv("AWS_ACCESS_KEY_ID"),
 		SecretAccessKey: os.Getenv("AWS_SECRET_ACCESS_KEY"),
@@ -229,7 +204,7 @@ func getCredentialsFromEnvironment() (AwsCredentials, error) {
 	return credentials, nil
 }
 
-func (Console) getCredentialsFromIamUser(profile string, sessionDuration int64) (AwsCredentials, error) {
+func (c *Console) getCredentialsFromIamUser(profile string, sessionDuration int64, sdkHelper SdkHelper) (AwsCredentials, error) {
 	var credentials AwsCredentials
 	var sessionOptions session.Options
 
@@ -239,25 +214,17 @@ func (Console) getCredentialsFromIamUser(profile string, sessionDuration int64) 
 		sessionOptions = session.Options{Profile: profile}
 	}
 
-	policy := `{
-		"Version": "2012-10-17",
-		"Statement": [
-			{
-				"Effect": "Allow",
-				"Action": "*",
-				"Resource": "*"
-			}
-		]
-	}`
-
 	sess := session.Must(session.NewSessionWithOptions(sessionOptions))
 	stsClient := sts.New(sess)
 
-	username, err := getAwsUsername(stsClient)
+	username, err := c.getAwsUsername(stsClient, sdkHelper)
 	if err != nil {
 		return credentials, err
 	}
-	input := sts.GetFederationTokenInput{Name: &username, DurationSeconds: &sessionDuration, Policy: &policy}
+
+	localPolicy := policy // can't reference a const, wil have to copy this
+
+	input := sts.GetFederationTokenInput{Name: &username, DurationSeconds: &sessionDuration, Policy: &localPolicy}
 
 	tokenResponse, err := stsClient.GetFederationToken(&input)
 	if err != nil {
@@ -273,16 +240,16 @@ func (Console) getCredentialsFromIamUser(profile string, sessionDuration int64) 
 	return credentials, nil
 }
 
-func (c *Console) parseSessionDuration() (int64, error) {
+func (c *Console) parseSessionDuration(duration string) (int64, error) {
 	// Try to parse duration string as-is
-	sessionSeconds, err := strconv.ParseInt(c.SessionDuration, 10, 64)
+	sessionSeconds, err := strconv.ParseInt(duration, 10, 64)
 	if err != nil {
 		// If duration string fails to parse, assume there is a time suffix
-		durationPrefix, err := strconv.ParseInt(c.SessionDuration[0:len(c.SessionDuration)-1], 10, 64)
+		durationPrefix, err := strconv.ParseInt(duration[0:len(duration)-1], 10, 64)
 		if err != nil {
 			return 0, err
 		}
-		durationSuffix := c.SessionDuration[len(c.SessionDuration)-1:]
+		durationSuffix := duration[len(duration)-1:]
 
 		switch durationSuffix {
 		case "h":
