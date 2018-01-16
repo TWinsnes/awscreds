@@ -19,8 +19,6 @@ jobs:
       # build and test
       - run: go get -v -t -d ./...
       - run: go build -v
-      - run: go test -v -race -cover ./...
-
 
       # Only build additinoal 
       # build for macos
@@ -48,6 +46,8 @@ jobs:
             GOOS: windows
             GOARCH: 386
           command: go build -v -o windows32/awscreds.exe .
+
+      - run: go test -v -race -cover ./...
 
       - store_artefacts:
           path: windows32/awscred.exe
