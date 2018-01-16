@@ -21,12 +21,34 @@ jobs:
       - run: go build -v
       - run: go test -v -race -cover ./...
 
+
+      # Only build additinoal 
       # build for macos
-      - run: env GOOS=darwin	GOARCH=amd64 go build -v -o darwin/awscreds .
+      - run: 
+          name: Build for macOS
+          environments:   
+            GOOS: darwin
+            GOARCH: amd64 
+          command: go build -v -o darwin/awscreds .
 
       # build windows 64 bit
-      - run: go get github.com/inconshreveable/mousetrap
-      - run: env GOOS=windows	GOARCH=amd64 go build -v -o windows64/awscreds.exe .
+      - run: 
+          name: Build Windows 64bit
+          environments: 
+            GOOS: windows
+            GOARCH: amd64
+          command: | 
+            go get github.com/inconshreveable/mousetrap
+            go build -v -o windows64/awscreds.exe .
 
       #build windows 32 bit
-      - run: env GOOS=windows	GOARCH=386 go build -v -o windows32/awscreds.exe .
+      - run: 
+          name: Build Windows 32bit
+          environments: 
+            GOOS: windows
+            GOARCH: 386
+          command: go build -v -o windows32/awscreds.exe .
+
+      - store_artefacts:
+          path: windows32/awscred.exe
+          
