@@ -3,4 +3,13 @@
 Helps manage credentials for multiple accounts from command line
 
 ## To use
-`awscreds console --profile=<aws profile>`
+Download latest released binary and add to path
+
+Open the console using a saved profile
+`awscreds console --p=<aws profile>`
+
+For more details
+`awscreds help`
+
+## To build from source
+`go get github.com/TWinsnes/awscreds`
