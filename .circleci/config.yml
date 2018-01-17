@@ -38,6 +38,8 @@ jobs:
           command: | 
             go get github.com/inconshreveable/mousetrap
             go build -v -o windows64/awscreds.exe .
+            ls
+            ls windows64
 
       #build windows 32 bit
       - run: 
@@ -50,5 +52,11 @@ jobs:
       - run: go test -v -race -cover ./...
 
       - store_artifacts:
-          path: windows32/awscred.exe
+          path: windows64/awscreds.exe
+
+      - store_artifacts:
+          path: windows32/awscreds.exe
+      
+      - store_artifacts:
+          path: darwin/awscreds
           
