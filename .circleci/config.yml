@@ -33,7 +33,11 @@ jobs:
           environments:   
             GOOS: darwin
             GOARCH: amd64 
-          command: go build -v -o darwin/awscreds .
+          command: |
+            go build -v -o awscreds .
+            mkdir output
+            export version=$(./awscreds version | sed -e 's/Version: //')
+            zip "output/awscreds_${version}_darwin.zip" awscreds
 
       # build windows 64 bit
       - run: 
@@ -43,9 +47,9 @@ jobs:
             GOARCH: amd64
           command: | 
             go get github.com/inconshreveable/mousetrap
-            go build -v -o windows64/awscreds.exe .
-            ls
-            ls windows64
+            go build -v -o awscreds.exe .
+            export version=$(./awscreds version | sed -e 's/Version: //')
+            zip "output/awscreds_${version}_win64.zip" awscreds.exe
 
       #build windows 32 bit
       - run: 
@@ -53,16 +57,14 @@ jobs:
           environments: 
             GOOS: windows
             GOARCH: 386
-          command: go build -v -o windows32/awscreds.exe .
+          command: |
+            go build -v -o awscreds.exe .
+            export version=$(./awscreds version | sed -e 's/Version: //')
+            zip "output/awscreds_${version}_win32.zip" awscreds.exe
+            pwd
 
       - store_artifacts:
-          path: windows64/awscreds.exe
-
-      - store_artifacts:
-          path: windows32/awscreds.exe
-      
-      - store_artifacts:
-          path: darwin/awscreds
+          path: output
           
 workflows:
   version: 2
@@ -72,8 +74,8 @@ workflows:
       - deploy:
           requires: 
             - build
-          filters:
-            branches:
-              ignore: /.*/
-            tags:
-              only: /^v\..\..*/
+          # filters:
+          #   branches:
+          #     only: master
+          #   tags:
+          #     ignore: /.*/
