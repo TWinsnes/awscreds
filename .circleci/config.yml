@@ -4,10 +4,10 @@
 version: 2
 jobs:
   build:
+    working_directory: /go/src/github.com/TWinsnes/awscreds
     docker:
       - image: circleci/golang:latest
 
-    working_directory: /go/src/github.com/TWinsnes/awscreds
     steps:
       - checkout
 
@@ -17,52 +17,89 @@ jobs:
       - run: go test -v -race -cover ./...
 
   deploy:
+    working_directory: /go/src/github.com/TWinsnes/awscreds
     docker:
       - image: circleci/golang:latest
 
-    worksing_directory: /go/src/github.com/TWinsnes/awscreds
     steps:
       - checkout
 
-      - run: go get -v -t -d ./...
+      - run:
+          name: Setup
+          command: |
+            go get -v -t -d ./...
+            mkdir output
+            go build -v -o awscreds .
+            ls
+            ./awscreds version | sed -e 's/Version: /v./' > versionfile
 
-      # Only build additinoal 
+
+      - run: 
+          name: Build for linux
+          environment:
+            GOOS: linux
+            GOARCH: amd64
+          command: |
+            go build -v -o awscreds .
+            export version=$(cat versionfile)
+            echo $version
+            zip "output/awscreds_${version}_linux64.zip" awscreds
+
       # build for macos
       - run: 
           name: Build for macOS
-          environments:   
+          environment:
             GOOS: darwin
-            GOARCH: amd64 
-          command: go build -v -o darwin/awscreds .
+            GOARCH: amd64
+          command: |
+            go build -v -o awscreds .
+            export version=$(cat versionfile)
+            echo $version
+            zip "output/awscreds_${version}_darwin.zip" awscreds
 
       # build windows 64 bit
       - run: 
           name: Build Windows 64bit
-          environments: 
+          environment:
             GOOS: windows
             GOARCH: amd64
           command: | 
+            # cross compile to windows in linux requires a few extra bits
+            # this gets around permission issues
+            sudo chmod -R 0777 /usr/local/go/
             go get github.com/inconshreveable/mousetrap
-            go build -v -o windows64/awscreds.exe .
-            ls
-            ls windows64
+            go build -v -o awscreds.exe .
+            export version=$(cat versionfile)
+            echo $version
+            zip "output/awscreds_${version}_win64.zip" awscreds.exe
 
       #build windows 32 bit
       - run: 
           name: Build Windows 32bit
-          environments: 
+          environment:
             GOOS: windows
             GOARCH: 386
-          command: go build -v -o windows32/awscreds.exe .
+          command: |
+            go build -v -o awscreds.exe .
+            export version=$(cat versionfile)
+            echo $version
+            zip "output/awscreds_${version}_win32.zip" awscreds.exe
+            pwd
+
+      - run:
+          name: Release if new version
+          command: |
+            export version=$(cat versionfile)
+            echo $version
+            export tagvalue=$(git tag | grep ${version})
+            if [ -z "${tagvalue}" ]; then
+              go get github.com/tcnksm/ghr
+
+              ghr -u twinsnes -prerelease ${version} output
+            fi
 
       - store_artifacts:
-          path: windows64/awscreds.exe
-
-      - store_artifacts:
-          path: windows32/awscreds.exe
-      
-      - store_artifacts:
-          path: darwin/awscreds
+          path: output
           
 workflows:
   version: 2
@@ -74,6 +111,6 @@ workflows:
             - build
           filters:
             branches:
-              ignore: /.*/
+              only: master
             tags:
-              only: /^v\..\..*/
+              ignore: /.*/
