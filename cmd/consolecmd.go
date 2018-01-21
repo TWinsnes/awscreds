@@ -48,5 +48,6 @@ func init() {
 	consoleCmd.Flags().StringVarP(&consoleOptions.Service, "service", "s", "", "AWS Service to connect to")
 	consoleCmd.Flags().StringVarP(&consoleOptions.SessionDuration, "session-duration", "t", "12h", "Length of session duration (suffix with s/m/h)")
 	consoleCmd.Flags().BoolVar(&consoleOptions.PrintKeys, "printkeys", false, "Set this to print federated keys to console")
+	consoleCmd.Flags().BoolVarP(&consoleOptions.PrintURL, "printurl", "u", false, "Print login url to console rather than opening the browser")
 
 }
