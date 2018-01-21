@@ -1,1 +1,4 @@
-theme: jekyll-theme-midnight
+theme: jekyll-theme-slate
+title: Awscreds
+description: utility to make working with multiple aws accounts easier
+show_downloads: true
