@@ -17,7 +17,7 @@ import (
 	"github.com/aws/aws-sdk-go/service/sts/stsiface"
 )
 
-const policy string = `{
+var policy = `{
 	"Version": "2012-10-17",
 	"Statement": [
 		{
@@ -46,6 +46,7 @@ type Console struct {
 	Service         string
 	SessionDuration string
 	PrintKeys       bool
+	PrintURL        bool
 }
 
 // AwsCredentials acts as a credential storage structure across providers
@@ -156,7 +157,11 @@ func (c *Console) OpenConsole(browser Browser, sdkHelper SdkHelper) error {
 		return err
 	}
 
-	err = browser.Open(loginURL)
+	if c.PrintURL {
+		fmt.Print(loginURL)
+	} else {
+		err = browser.Open(loginURL)
+	}
 
 	return err
 }
@@ -247,9 +252,7 @@ func (c *Console) parseSessionDuration(duration string) (int64, error) {
 
 func (c *Console) getFederationToken(stsClient stsiface.STSAPI, name string, duration int64) (AwsCredentials, error) {
 
-	localPolicy := policy // can't reference a const, wil have to copy this
-
-	input := sts.GetFederationTokenInput{Name: &name, DurationSeconds: &duration, Policy: &localPolicy}
+	input := sts.GetFederationTokenInput{Name: &name, DurationSeconds: &duration, Policy: &policy}
 
 	token, err := stsClient.GetFederationToken(&input)
 
