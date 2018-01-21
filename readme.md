@@ -1,7 +1,6 @@
 # AWS credentials helper
 [![Build Status][circleci-badge]][circleci]
 [![Release][release-badge]][release]
-[![Homebrew][homebrew-badge]][homebrew]
 [![GoReportCard][report-badge]][report]
 [![License][license-badge]][license]
 
