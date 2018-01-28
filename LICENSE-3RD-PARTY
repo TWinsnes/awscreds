@@ -1,7 +1,7 @@
 This file contains the list of all the great opens souece libraries that 
 we rely on to create this utility
 
-github.com/aws/aws-sdk-go                 Apache License 2.0
-github.com/mitchellh/go-homedir           MIT License
-github.com/spf13/cobra                    Apache License 2.0 (95%)
-github.com/spf13/viper                    MIT License
+github.com/BurntSushi/toml       MIT License
+github.com/aws/aws-sdk-go        Apache License 2.0
+github.com/mitchellh/go-homedir  MIT License
+github.com/spf13/cobra           Apache License 2.0 (95%)
