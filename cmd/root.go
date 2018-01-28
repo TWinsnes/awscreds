@@ -18,12 +18,13 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/TWinsnes/awscreds/config"
 	homedir "github.com/mitchellh/go-homedir"
 	"github.com/spf13/cobra"
-	"github.com/spf13/viper"
 )
 
 var cfgFile string
+var conf config.Config
 
 // rootCmd represents the base command when called without any subcommands
 var rootCmd = &cobra.Command{
@@ -42,18 +43,17 @@ func Execute() {
 }
 
 func init() {
+
+	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is $HOME/.awscreds)")
+
 	cobra.OnInitialize(initConfig)
-
-	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is $HOME/.awscreds.yaml)")
-
 }
 
 // initConfig reads in config file and ENV variables if set.
 func initConfig() {
-	if cfgFile != "" {
-		// Use config file from the flag.
-		viper.SetConfigFile(cfgFile)
-	} else {
+	if cfgFile == "" {
+		// flag not set, use default
+
 		// Find home directory.
 		home, err := homedir.Dir()
 		if err != nil {
@@ -61,15 +61,15 @@ func initConfig() {
 			os.Exit(1)
 		}
 
-		// Search config in home directory with name ".awscreds" (without extension).
-		viper.AddConfigPath(home)
-		viper.SetConfigName(".awscreds")
+		cfgFile = home + "/.awscreds"
+
 	}
 
-	viper.AutomaticEnv() // read in environment variables that match
+	conf = config.LoadConfig(cfgFile)
 
-	// If a config file is found, read it in.
-	if err := viper.ReadInConfig(); err == nil {
-		fmt.Println("Using config file:", viper.ConfigFileUsed())
-	}
+	setConfigDefaults()
+
+}
+
+func setConfigDefaults() {
 }
