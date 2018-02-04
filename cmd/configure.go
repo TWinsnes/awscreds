@@ -1,4 +1,4 @@
-// Copyright © 2018 NAME HERE <EMAIL ADDRESS>
+// Copyright © 2018 Thomas Winsnes <twinsnes@live.com>
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -34,11 +34,17 @@ var configureCmd = &cobra.Command{
 		err := getUserConfigValues(conf)
 
 		if err != nil {
-			fmt.Print(err)
+			fmt.Println(err)
 			os.Exit(1)
 		}
 
-		conf.SaveConfig(cfgFile)
+		err = conf.SaveConfig(cfgFile)
+
+		if err != nil {
+			fmt.Println(err)
+			os.Exit(1)
+		}
+
 		fmt.Println("Wrote default configuration values to file")
 	},
 }
@@ -47,10 +53,10 @@ func init() {
 	rootCmd.AddCommand(configureCmd)
 }
 
-func getUserConfigValues(conf config.Config) error {
+func getUserConfigValues(conf config.Handler) error {
 	reader := bufio.NewReader(os.Stdin)
 
-	fmt.Printf("Secret Backend [%s]", conf.SecretBackend)
+	fmt.Printf("Secret Backend [%s]", conf.SecretBackend())
 	secretBackend, err := reader.ReadString('\n')
 
 	if err != nil {
@@ -60,7 +66,11 @@ func getUserConfigValues(conf config.Config) error {
 	// remove trailing
 	secretBackend = strings.TrimSpace(secretBackend)
 	if secretBackend != "" {
-		conf.SecretBackend = secretBackend
+		err := conf.SetSecretBackend(secretBackend)
+
+		if err != nil {
+			return err
+		}
 	}
 
 	return nil

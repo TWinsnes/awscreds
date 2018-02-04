@@ -24,7 +24,7 @@ import (
 )
 
 var cfgFile string
-var conf config.Config
+var conf config.Handler
 
 // rootCmd represents the base command when called without any subcommands
 var rootCmd = &cobra.Command{
@@ -65,11 +65,7 @@ func initConfig() {
 
 	}
 
-	conf = config.LoadConfig(cfgFile)
+	conf, _ = config.LoadConfig(cfgFile)
 
-	setConfigDefaults()
-
-}
-
-func setConfigDefaults() {
+	fmt.Println(conf.SecretBackend())
 }
