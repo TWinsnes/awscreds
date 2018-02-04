@@ -15,6 +15,9 @@
 package config
 
 import (
+	"fmt"
+	"io/ioutil"
+	"os"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -74,4 +77,64 @@ func TestValidateSecretBackend(t *testing.T) {
 
 	assert.Error(t, err, "Expected 'notvalid' to fail validation")
 
+}
+
+func TestLoadConfig(t *testing.T) {
+	filecontent := []byte("SecretBackend = \"notaws\"\n")
+
+	f, err := ioutil.TempFile("", "test")
+
+	path := f.Name()
+
+	f.Close()
+
+	fmt.Println(path)
+
+	err = ioutil.WriteFile(path, filecontent, 0755)
+
+	if err != nil {
+		fmt.Println("Could not write to file " + path)
+		os.Exit(1)
+	}
+
+	conf, err := LoadConfig(path)
+
+	if err != nil {
+		fmt.Println(err)
+	}
+
+	assert.NoError(t, err, "LoadConfig had an error in loading file, and fell back to default values")
+
+	assert.Equal(t, "notaws", conf.SecretBackend())
+
+	os.Remove(path)
+
+}
+
+// TestLoadConfigNoFile tests to make sure config falls back to
+// default values if there is no file
+func TestLoadConfigNoFile(t *testing.T) {
+	conf, err := LoadConfig("/non/existant/directory/file")
+
+	assert.Error(t, err, "Expected an error")
+	assert.Equal(t, "aws", conf.SecretBackend(), "Default was not loaded")
+}
+
+func TestSaveConfig(t *testing.T) {
+	f, err := ioutil.TempFile("", "test")
+
+	path := f.Name()
+
+	f.Close()
+
+	conf := config{}
+	conf.wrapper.SecretBackend = "notaws"
+
+	err = conf.SaveConfig(path)
+
+	assert.NoError(t, err)
+
+	newconf, err := LoadConfig(path)
+
+	assert.Equal(t, "notaws", newconf.SecretBackend())
 }

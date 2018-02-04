@@ -65,7 +65,7 @@ func initConfig() {
 
 	}
 
-	conf = config.LoadConfig(cfgFile)
+	conf, _ = config.LoadConfig(cfgFile)
 
 	fmt.Println(conf.SecretBackend())
 }

@@ -11,6 +11,7 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
+
 package config
 
 import (
@@ -48,7 +49,7 @@ type config struct {
 // LoadConfig loads the configuration from file,
 // and falls back to default calues if file
 // could not be be loaded
-func LoadConfig(path string) Handler {
+func LoadConfig(path string) (Handler, error) {
 	var conf = config{}
 	err := conf.loadConfigFile(path)
 
@@ -56,7 +57,7 @@ func LoadConfig(path string) Handler {
 		conf.loadDefaults()
 	}
 
-	return &conf
+	return &conf, err
 }
 
 func (c *config) SecretBackend() string {
@@ -107,7 +108,7 @@ func (c *config) loadConfigFile(path string) error {
 
 	wrapper := internalConfig{}
 
-	_, err = toml.Decode(tomlcontent, wrapper)
+	_, err = toml.Decode(tomlcontent, &wrapper)
 
 	if err != nil {
 		return err
@@ -124,7 +125,7 @@ func (c *config) SaveConfig(path string) error {
 	writer, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0755)
 
 	if err != nil {
-		return nil
+		return err
 	}
 
 	defer writer.Close()
