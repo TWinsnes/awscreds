@@ -26,7 +26,7 @@ var versionCmd = &cobra.Command{
 	Short: "Prints out the current version",
 	Long:  `Prints out the current version of awscreds`,
 	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Println("Version: 0.4-alpha")
+		fmt.Println("Version: 0.4-pre-release")
 	},
 }
 
