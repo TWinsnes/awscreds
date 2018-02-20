@@ -202,6 +202,10 @@ func (c *Console) getAwsUsername(stsClient stsiface.STSAPI) (string, error) {
 	splitArn := strings.Split(callerIdentity, "/")
 	username := splitArn[len(splitArn)-1]
 
+	if len(username) > 32 {
+		username = username[:32]
+	}
+
 	return username, nil
 }
 

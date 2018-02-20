@@ -96,6 +96,8 @@ func TestGetAwsUsername(t *testing.T) {
 
 	stsClient := mockStsApi{}
 
+	stsClient.CallerIdentity = "somethingrandom/UserName"
+
 	c := Console{}
 
 	name, err := c.getAwsUsername(stsClient)
@@ -104,21 +106,24 @@ func TestGetAwsUsername(t *testing.T) {
 	assert.Equal(t, "UserName", name)
 }
 
-// func TestOpenConsole(t *testing.T) {
-// 	c := Console{
-// 		SessionDuration: "12h",
-// 	}
-// 	sdkHelper := mockSdkHelper{}
-// 	browser := mockBrowser{}
+func TestGetAwsUsernameTooLong(t *testing.T) {
+	stsClient := mockStsApi{}
 
-// 	err := c.OpenConsole(browser, sdkHelper)
+	stsClient.CallerIdentity = "somethingrandom/somethinglongerthan32charactersmaybe"
 
-// 	assert.NoError(t, err, "expected no error")
-// }
+	c := Console{}
+
+	name, err := c.getAwsUsername(stsClient)
+
+	assert.NoError(t, err, "Expected no error")
+	assert.Equal(t, "somethinglongerthan32charactersm", name)
+}
 
 type mockSdkHelper struct{}
 
-type mockStsApi struct{}
+type mockStsApi struct {
+	CallerIdentity string
+}
 
 func (mockSdkHelper) GetCallerIdentity(stsClient stsiface.STSAPI) (string, error) {
 	return "sdfsd/UserName", nil
@@ -182,7 +187,7 @@ func (m mockStsApi) DecodeAuthorizationMessageRequest(*sts.DecodeAuthorizationMe
 
 func (m mockStsApi) GetCallerIdentity(*sts.GetCallerIdentityInput) (*sts.GetCallerIdentityOutput, error) {
 	output := sts.GetCallerIdentityOutput{}
-	value := "somethingrandom/UserName"
+	value := m.CallerIdentity
 	output.Arn = &value
 	return &output, nil
 }
